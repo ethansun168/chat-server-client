@@ -23,12 +23,14 @@ struct Message {
     std::chrono::time_point<std::chrono::system_clock> timestamp;
 };
 
-std::int64_t to_milliseconds_since_epoch(std::chrono::time_point<std::chrono::system_clock> timestamp);
-
-std::chrono::time_point<std::chrono::system_clock> from_milliseconds_since_epoch(std::int64_t ms);
+std::string timePointToString(std::chrono::system_clock::time_point time);
 
 bool sendMessage(int sockfd, const Message& message);
 
 bool receiveMessage(int sockfd, Message& message);
 
 std::string generateRandomToken();
+
+std::string formatTimestamp(int64_t timestampSeconds);
+
+std::chrono::system_clock::time_point intToTimePoint(int timestamp);

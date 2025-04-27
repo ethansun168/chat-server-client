@@ -1,4 +1,7 @@
 #include <vector>
+#include <algorithm>
+#include <atomic>
+#include <thread>
 #include <unordered_map>
 #include <iomanip>
 #include "utils.h"
@@ -13,12 +16,38 @@ std::vector<std::string> split(const std::string& str, char delimiter) {
     return tokens;
 }
 
+void listenThreadFunc(std::atomic<bool>& chatting, int serverfd) {
+    while (chatting.load()) {
+        // Listen for new Messages from server
+        fd_set readSet;
+        FD_ZERO(&readSet);
+        FD_SET(serverfd, &readSet);
+        
+        struct timeval timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 100000; // 100ms timeout
+        
+        int ready = select(serverfd + 1, &readSet, NULL, NULL, &timeout);
+
+        if (ready > 0 && FD_ISSET(serverfd, &readSet)) {
+            Message newMessage;
+            receiveMessage(serverfd, newMessage);
+            std::cout << "\033[2K\r";
+            std::cout << "[" << formatTimestamp(std::stoi(timePointToString(newMessage.timestamp))) << "] " << newMessage.sender << ": " << newMessage.content << std::endl;
+            std::cout.flush();
+            std::cout << "Send a message > ";
+            std::cout.flush();
+        }
+    }
+}
+
 class ChatClient {
 private:
     sockaddr_in serveraddr;
     int serverfd;
     std::string username;
     std::string token;
+    std::atomic<bool> chatting;
     const std::unordered_map<std::string, std::string> commands = {
         {"h", "Show this help"},
         {"q", "Disconnect and quit"},
@@ -38,6 +67,7 @@ public:
             std::cerr << "Error connecting to server" << std::endl;
             exit(1);
         }
+        chatting.store(false);
     }
 
     void authenticate() {
@@ -64,7 +94,6 @@ public:
             exit(1);
         }
         username = message.sender;
-        // username = "user1";
     }
     void printHelp() {
         std::cout << "Commands: " << std::endl;
@@ -76,8 +105,123 @@ public:
         }
     }
 
+    std::vector<std::string> printChatroom() {
+        std::cout << "Welcome to the Chat Room" << std::endl;
+        std::cout << "Type the number of the user you want to chat with" << std::endl;
+        Message message {
+            .type = Message::Type::COMMAND,
+            .sender = "",
+            .receiver = "",
+            .content = "allUsers",
+            .token = token,
+            .timestamp = std::chrono::system_clock::now()
+        };
+        sendMessage(serverfd, message);
+        receiveMessage(serverfd, message);
+        std::vector<std::string> users = split(message.content, '\n');
+        for (int i = 0; i < users.size(); i++) {
+            std::cout << "(" << i + 1 << ") " << users[i] << std::endl;
+        }
+        std::cout << "(q) back to menu" << std::endl;
+        return users;
+    }
+
     void clearScreen() {
         std::cout << "\033[2J\033[1;1H" << std::flush;
+    }
+
+    void chatroom() {
+        clearScreen();
+        std::vector<std::string> users = printChatroom();
+        while (true) {
+            std::cout << "> ";
+            std::string chatInput;
+            std::getline(std::cin, chatInput);
+            if (chatInput == "q") {
+                clearScreen();
+                printHelp();
+                return;
+            }
+            try {
+                int userID = std::stoi(chatInput);
+                if (userID < 1 || userID > users.size()) {
+                    std::cout << "Invalid user ID" << std::endl;
+                    continue;
+                }
+                chat(users[userID - 1]);
+            }
+            catch (const std::exception &e) {
+                std::cerr << "Error: " << e.what() << std::endl;
+                continue;
+            }
+        }
+    }
+
+    void chat(std::string otherUser) {
+        clearScreen();
+        std::cout << "Chat with " << otherUser << std::endl;
+        std::cout << "Type \"!q\" to go back to menu" << std::endl;
+        // Get chat history from server
+        Message message {
+            .type = Message::Type::COMMAND,
+            .sender = username,
+            .receiver = otherUser,
+            .content = "chat",
+            .token = token,
+            .timestamp = std::chrono::system_clock::now()
+        };
+        sendMessage(serverfd, message);
+        receiveMessage(serverfd, message);
+        std::stringstream ss(message.content);
+        std::string line;
+        int lastPing = 0;
+        while (std::getline(ss, line)) {
+            std::stringstream msg(line);
+            std::string timestamp, sender, content;
+            msg >> timestamp >> sender;
+            std::getline(msg, content);
+            lastPing = std::stoi(timestamp);
+            std::cout << "[" << formatTimestamp(lastPing) << "] " << sender << ":" << content << std::endl;
+        }
+
+        chatting.store(true);
+        // Start a thread that pings the server for new chat messages every second
+        std::thread listenThread(listenThreadFunc, std::ref(chatting), serverfd);
+
+        while (true) {
+            std::cout << "Send a message > ";
+            std::string chatInput;
+            std::getline(std::cin, chatInput);
+            if (chatInput == "!q") {
+                chatting.store(false);
+                listenThread.join();
+                clearScreen();
+                printChatroom();
+                return;
+            }
+            // Remove leading whitespace
+            chatInput.erase(chatInput.begin(), std::find_if(chatInput.begin(), chatInput.end(), [](unsigned char ch) {
+                return !std::isspace(ch);
+            }));
+
+            std::cout << "\033[1A\033[2K\r";
+            if (chatInput.empty()) {
+                continue;
+            }
+            auto now = std::chrono::system_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch());
+            std::cout << "[" << formatTimestamp(duration.count()) << "] " << username << ": " << chatInput << std::endl;
+            // Send message to server about this chat
+            message = {
+                .type = Message::Type::CHAT,
+                .sender = username,
+                .receiver = otherUser,
+                .content = chatInput,
+                .token = token,
+                .timestamp = now
+            };
+            sendMessage(serverfd, message);
+        }
     }
     void run() {
         std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
@@ -118,60 +262,7 @@ public:
                 std::cout << message.content;
             }
             else if (input == "chat") {
-                clearScreen();
-                std::cout << "Welcome to the Chat Room" << std::endl;
-                std::cout << "Type the number of the user you want to chat with" << std::endl;
-                Message message {
-                    .type = Message::Type::COMMAND,
-                    .sender = "",
-                    .receiver = "",
-                    .content = "allUsers",
-                    .token = token,
-                    .timestamp = std::chrono::system_clock::now()
-                };
-                sendMessage(serverfd, message);
-                receiveMessage(serverfd, message);
-                // Split message.content into vector 
-                std::vector<std::string> users = split(message.content, '\n');
-                for (int i = 0; i < users.size(); i++) {
-                    std::cout << "(" << i + 1 << ") " << users[i] << std::endl;
-                }
-                std::cout << "(q) back to menu" << std::endl;
-                while (true) {
-                    std::cout << "> ";
-                    std::string chatInput;
-                    std::getline(std::cin, chatInput);
-                    if (chatInput == "q") {
-                        clearScreen();
-                        printHelp();
-                        break;
-                    }
-                    try {
-                        int userID = std::stoi(chatInput);
-                        if (userID < 1 || userID > users.size()) {
-                            std::cout << "Invalid user ID" << std::endl;
-                            continue;
-                        }
-                        // Message message {
-                        //     .type = Message::Type::COMMAND,
-                        //     .sender = "",
-                        //     .receiver = "",
-                        //     .content = "chat " + users[userID - 1],
-                        //     .token = token,
-                        //     .timestamp = std::chrono::system_clock::now()
-                        // };
-                        // sendMessage(serverfd, message);
-                        // receiveMessage(serverfd, message);
-                        clearScreen();
-                        std::cout << "Chat with " << users[userID - 1] << std::endl;
-                        std::cout << message.content << std::endl;
-                        std::cout << "Type \"q\" to go back to menu" << std::endl;
-                    }
-                    catch (const std::exception &e) {
-                        std::cerr << "Error: " << e.what() << std::endl;
-                        continue;
-                    }
-                }
+                chatroom();
             }
         }
     }

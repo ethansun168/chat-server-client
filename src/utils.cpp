@@ -1,12 +1,13 @@
 #include "utils.h"
+#include <chrono>
+#include <sstream>
+#include <iomanip>
 #include <random>
 
-std::int64_t to_milliseconds_since_epoch(std::chrono::time_point<std::chrono::system_clock> timestamp) {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(timestamp.time_since_epoch()).count();
-}
 
-std::chrono::time_point<std::chrono::system_clock> from_milliseconds_since_epoch(std::int64_t ms) {
-    return std::chrono::time_point<std::chrono::system_clock>(std::chrono::milliseconds(ms));
+std::string timePointToString(std::chrono::system_clock::time_point time) {
+    auto unix_timestamp = std::chrono::duration_cast<std::chrono::seconds>(time.time_since_epoch()).count();
+    return std::to_string(unix_timestamp);
 }
 
 uint64_t htonll(uint64_t value) {
@@ -67,13 +68,9 @@ bool sendMessage(int sockfd, const Message& message) {
         return false;
     }
 
-    // Serialize timestamp
-    std::int64_t timestamp_ms = to_milliseconds_since_epoch(message.timestamp);
-    uint64_t network_timestamp = htonll(timestamp_ms);
-
-    ssize_t sent_bytes = write(sockfd, &network_timestamp, sizeof(network_timestamp));
-    if (sent_bytes == -1) {
-        std::cerr << "Failed to send data" << std::endl;
+    std::string timestamp = timePointToString(message.timestamp);
+    if(!sendString(sockfd, timestamp)) {
+        return false;
     }
 
     return true;
@@ -103,15 +100,11 @@ bool receiveMessage(int sockfd, Message& message) {
     }
 
     // Receive timestamp
-    uint64_t network_timestamp;
-    if (read(sockfd, &network_timestamp, sizeof(network_timestamp)) < 0) {
-        std::cerr << "Error receiving timestamp" << std::endl;
+    std::string timestamp;
+    if (!receiveString(sockfd, timestamp)) {
         return false;
     }
-
-    // Convert timestamp back to host byte order and into a time_point
-    std::int64_t timestamp_ms = ntohll(network_timestamp);
-    message.timestamp = from_milliseconds_since_epoch(timestamp_ms);
+    message.timestamp = intToTimePoint(std::stoi(timestamp));
 
     return true;
 }
@@ -131,4 +124,21 @@ std::string generateRandomToken() {
     }
 
     return token;
+}
+
+std::string formatTimestamp(int64_t timestampSeconds) {
+    // Convert seconds to time_t
+    std::time_t tt = static_cast<std::time_t>(timestampSeconds);
+    
+    // Convert time_t to tm structure
+    std::tm tm = *std::localtime(&tt);
+
+    // Format using ostringstream
+    std::ostringstream oss;
+    oss << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");  // Format as "YYYY-MM-DD HH:MM:SS"
+    return oss.str();
+}
+
+std::chrono::system_clock::time_point intToTimePoint(int timestamp) {
+    return std::chrono::system_clock::time_point{std::chrono::seconds(timestamp)};
 }
