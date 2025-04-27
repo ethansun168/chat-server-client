@@ -11,12 +11,14 @@
 struct Message {
     enum class Type {
         CHAT,
-        AUTH
+        AUTH,
+        COMMAND,
+        CLOSE,
     };
     Type type;
     std::string sender; // Field for username on auth
     std::string receiver; // Field for password on auth
-    std::string content;
+    std::string content; // Field for command on command, content is returned in this field too
     std::string token;
     std::chrono::time_point<std::chrono::system_clock> timestamp;
 };

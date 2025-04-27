@@ -1,4 +1,5 @@
 #include <unordered_map>
+#include <set>
 #include "utils.h"
 
 const std::string DATABASE = "../var/database.sqlite3";
@@ -58,8 +59,12 @@ class ChatServer {
 private:
     int serverfd;
     struct sockaddr_in serveraddr;
-    // TODO: replace second int
-    std::unordered_map<int, int> clients;
+    // clientfd to token
+    struct User {
+        std::string username;
+        std::string token;
+    };
+    std::unordered_map<int, User> clients;
 
 public:
     ChatServer(int port) {
@@ -109,7 +114,7 @@ public:
                     continue;
                 }
                 std::cout << "New client connected: " << inet_ntoa(clientaddr.sin_addr) << ":" << ntohs(clientaddr.sin_port) << std::endl;
-                clients[clientfd] = 0;
+                clients[clientfd] = {};
             }
 
             // Handle client activity
@@ -120,7 +125,7 @@ public:
                     // Do something
                     Message message;
                     if (!receiveMessage(clientfd, message)) {
-                        std::cerr << "Closing connection" << std::endl;
+                        std::cerr << "Closing connection with " << clientfd << std::endl;
                         close(clientfd);
                         it = clients.erase(it++);
                         continue;
@@ -138,7 +143,7 @@ public:
                             std::string token = generateRandomToken();
                             message.token = token;
                             sendMessage(clientfd, message);
-                            clients[clientfd] = 1;
+                            clients[clientfd] = {message.sender, token};
                         }
                         else {
                             std::cout << "Authentication failed" << std::endl;
@@ -148,9 +153,71 @@ public:
                             continue;
                         }
                     }
-                    else if (message.type == Message::Type::CHAT) {
+
+                    // Authenticate the message
+                    if (message.token != clients[clientfd].token) {
+                        std::cout << "Authentication failed" << std::endl;
+                        continue;
+                    }
+
+                    if (message.type == Message::Type::CHAT) {
                         std::cout << "Received chat message from " << message.sender << ": " << message.content << " at " << to_milliseconds_since_epoch(message.timestamp) << std::endl;
                     }
+                    else if (message.type == Message::Type::COMMAND) {
+                        std::cout << "Received command " << message.content << " at " << to_milliseconds_since_epoch(message.timestamp) << std::endl;
+                        if (message.content == "onlineUsers") {
+                            // List online users
+                            std::string response = "";
+                            std::set<std::string> onlineUsers;
+                            for (auto& client : clients) {
+                                if (client.second.token != "") {
+                                    onlineUsers.insert(client.second.username);
+                                }
+                            }
+
+                            if (onlineUsers.empty()) {
+                                response = "No users online\n";
+                            }
+                            else {
+                                for (auto& user : onlineUsers) {
+                                    response += user + "\n";
+                                }
+                            }
+                            Message message {
+                                .type = Message::Type::COMMAND,
+                                .sender = "",
+                                .receiver = "",
+                                .content = response,
+                                .token = message.token,
+                                .timestamp = std::chrono::system_clock::now()
+                            };
+                            std::cout << "Responding with: " << std::endl;
+                            std::cout << response;
+                            sendMessage(clientfd, message);
+                        }
+                        else if (message.content == "allUsers") {
+                            Database db;
+                            Statement stmt(db.get(), "SELECT username FROM users");
+                            int result = sqlite3_step(stmt.get());
+                            std::string response = "";
+                            while (result == SQLITE_ROW) {
+                                response += std::string(reinterpret_cast<const char*>(sqlite3_column_text(stmt.get(), 0))) + "\n";
+                                result = sqlite3_step(stmt.get());
+                            }
+                            Message message {
+                                .type = Message::Type::COMMAND,
+                                .sender = "",
+                                .receiver = "",
+                                .content = response,
+                                .token = message.token,
+                                .timestamp = std::chrono::system_clock::now()
+                            };
+                            std::cout << "Responding with: " << std::endl;
+                            std::cout << response;
+                            sendMessage(clientfd, message);
+                        }
+                    }
+
                 }
                 it++;
             }
