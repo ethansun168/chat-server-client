@@ -34,3 +34,5 @@ std::string generateRandomToken();
 std::string formatTimestamp(int64_t timestampSeconds);
 
 std::chrono::system_clock::time_point intToTimePoint(int timestamp);
+
+void emptySocket(int sockfd);

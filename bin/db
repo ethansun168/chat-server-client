@@ -48,6 +48,7 @@ case $1 in
   "dump")
     sqlite3 -batch -line $DB_FILENAME 'SELECT * FROM users'
     sqlite3 -batch -line $DB_FILENAME 'SELECT * FROM messages'
+    sqlite3 -batch -line $DB_FILENAME 'SELECT * FROM global_messages'
     ;;
   *)
     usage

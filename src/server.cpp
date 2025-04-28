@@ -201,48 +201,71 @@ public:
                     }
 
                     if (message.type == Message::Type::CHAT) {
-                        std::cout << message.sender << " -> " << message.receiver << ": " << message.content << std::endl;
-                        // Insert chat into db
-                        Database db;
-                        Statement stmt(db.get(), "SELECT id FROM users WHERE username = ?");
-                        stmt.bindText(1, message.sender);
-                        int user1ID = -1;
-                        int user2ID = -1;
-                        if (stmt.step()) {
-                            user1ID = sqlite3_column_int(stmt.get(), 0);
+                        if (message.receiver == "") {
+                            std::cout << "Global chat: " << message.sender << ": " << message.content << std::endl;
+                            // Insert into global_messages table
+                            Database db;
+                            Statement stmt(db.get(), "SELECT id from users where username = ?");
+                            stmt.bindText(1, message.sender);
+                            int userID = -1;
+                            if (stmt.step()) {
+                                userID = sqlite3_column_int(stmt.get(), 0);
+                            }
+
+                            Statement stmt2(db.get(), "INSERT INTO global_messages (sender_id, message) VALUES (?, ?)");
+                            stmt2.bindInt(1, userID);
+                            stmt2.bindText(2, message.content);
+                            int result = sqlite3_step(stmt2.get());
+                            if (result != SQLITE_DONE) {
+                                std::cerr << "Error inserting into global_messages table" << std::endl;
+                            }
                         }
-                        stmt.reset();
-                        stmt.clearBindings();
-                        stmt.bindText(1, message.receiver);
-                        if (stmt.step()) {
-                            user2ID = sqlite3_column_int(stmt.get(), 0);
-                        }
-                        Statement stmt2(db.get(), "INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)");
-                        stmt2.bindInt(1, user1ID);
-                        stmt2.bindInt(2, user2ID);
-                        stmt2.bindText(3, message.content);
-                        int result = sqlite3_step(stmt2.get());
-                        if (result != SQLITE_DONE) {
-                            std::cerr << "Error inserting message into db" << std::endl;
+                        else {
+                            std::cout << message.sender << " -> " << message.receiver << ": " << message.content << std::endl;
+                            // Insert chat into db
+                            Database db;
+                            Statement stmt(db.get(), "SELECT id FROM users WHERE username = ?");
+                            stmt.bindText(1, message.sender);
+                            int user1ID = -1;
+                            int user2ID = -1;
+                            if (stmt.step()) {
+                                user1ID = sqlite3_column_int(stmt.get(), 0);
+                            }
+                            stmt.reset();
+                            stmt.clearBindings();
+                            stmt.bindText(1, message.receiver);
+                            if (stmt.step()) {
+                                user2ID = sqlite3_column_int(stmt.get(), 0);
+                            }
+                            Statement stmt2(db.get(), "INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)");
+                            stmt2.bindInt(1, user1ID);
+                            stmt2.bindInt(2, user2ID);
+                            stmt2.bindText(3, message.content);
+                            int result = sqlite3_step(stmt2.get());
+                            if (result != SQLITE_DONE) {
+                                std::cerr << "Error inserting message into db" << std::endl;
+                            }
                         }
                         // Send message to receiver clients if they are online
                         for (auto& client : clients) {
-                            if (client.second.username == message.receiver && client.second.username != message.sender) {
-                                std::cout << "Sending message to " << message.receiver << std::endl;
-                                Message responseMessage {
-                                    .type = Message::Type::CHAT,
-                                    .sender = message.sender,
-                                    .receiver = message.receiver,
-                                    .content = message.content,
-                                    .token = client.second.token,
-                                    .timestamp = message.timestamp
-                                };
-                                sendMessage(client.first, responseMessage);
+                            if (client.second.username != message.sender) {
+                                bool shouldSend = (message.receiver.empty()) || (client.second.username == message.receiver);
+                                if (shouldSend) {
+                                    std::cout << "Sending message to " << message.receiver << std::endl;
+                                    Message responseMessage {
+                                        .type = Message::Type::CHAT,
+                                        .sender = message.sender,
+                                        .receiver = message.receiver,
+                                        .content = message.content,
+                                        .token = client.second.token,
+                                        .timestamp = message.timestamp
+                                    };
+                                    sendMessage(client.first, responseMessage);
+                                }
                             }
                         }
                     }
                     else if (message.type == Message::Type::COMMAND) {
-                        // std::cout << "Received command " << message.content << " at " << to_milliseconds_since_epoch(message.timestamp) << std::endl;
                         if (message.content == "onlineUsers") {
                             // List online users
                             std::string response = "";
@@ -329,31 +352,22 @@ public:
                             };
                             sendMessage(clientfd, responseMessage);
                         }
-                        else if (message.content == "newChat") {
+                        else if (message.content == "globalChat") {
+                            // Retrieve global chat history
                             Database db;
-                            Statement stmt(db.get(), "SELECT u1.username AS sender, u2.username AS receiver, m.message, m.timestamp "
-                                 "FROM messages m "
-                                 "JOIN users u1 ON m.sender_id = u1.id "
-                                 "JOIN users u2 ON m.receiver_id = u2.id "
-                                 "WHERE m.timestamp > ? AND((u1.username = ? AND u2.username = ?) "
-                                 "OR (u1.username = ? AND u2.username = ?)) "
+                            
+                            Statement stmt(db.get(), "SELECT u.username, m.message, m.timestamp "
+                                 "FROM global_messages m "
+                                 "JOIN users u ON m.sender_id = u.id "
                                  "ORDER BY m.timestamp;");
 
-                            // Bind the parameters
-                            stmt.bindText(1, timePointToString(message.timestamp));
-                            stmt.bindText(2, message.sender);
-                            stmt.bindText(3, message.receiver);
-                            stmt.bindText(4, message.receiver);
-                            stmt.bindText(5, message.sender);
                             std::string response = "";
                             while (stmt.step()) {
                                 const char* sender = stmt.getColumnText(0);
-                                const char* receiver = stmt.getColumnText(1);
-                                const char* message = stmt.getColumnText(2);
-                                const char* timestamp = stmt.getColumnText(3);
+                                const char* message = stmt.getColumnText(1);
+                                const char* timestamp = stmt.getColumnText(2);
                                 response += std::string(timestamp) + " " + std::string(sender) + " " + std::string(message) + "\n";
                             }
-                            std::cout << response << std::endl;
                             Message responseMessage {
                                 .type = Message::Type::COMMAND,
                                 .sender = "",
@@ -363,6 +377,8 @@ public:
                                 .timestamp = std::chrono::system_clock::now()
                             };
                             sendMessage(clientfd, responseMessage);
+
+ 
                         }
                     }
 

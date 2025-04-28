@@ -31,7 +31,9 @@ void listenThreadFunc(std::atomic<bool>& chatting, int serverfd) {
 
         if (ready > 0 && FD_ISSET(serverfd, &readSet)) {
             Message newMessage;
-            receiveMessage(serverfd, newMessage);
+            if (!receiveMessage(serverfd, newMessage)) {
+                return;
+            }
             std::cout << "\033[2K\r";
             std::cout << "[" << formatTimestamp(std::stoi(timePointToString(newMessage.timestamp))) << "] " << newMessage.sender << ": " << newMessage.content << std::endl;
             std::cout.flush();
@@ -54,6 +56,7 @@ private:
         {"whoami", "Show your username"},
         {"users", "List online users"},
         {"chat", "Enter the chatroom"},
+        {"global", "Enter the global chatroom"},
     };
 public:
 
@@ -117,6 +120,7 @@ public:
             .timestamp = std::chrono::system_clock::now()
         };
         sendMessage(serverfd, message);
+        emptySocket(serverfd);
         receiveMessage(serverfd, message);
         std::vector<std::string> users = split(message.content, '\n');
         for (int i = 0; i < users.size(); i++) {
@@ -159,29 +163,36 @@ public:
 
     void chat(std::string otherUser) {
         clearScreen();
-        std::cout << "Chat with " << otherUser << std::endl;
-        std::cout << "Type \"!q\" to go back to menu" << std::endl;
-        // Get chat history from server
-        Message message {
+        if (otherUser == "") {
+            std::cout << "Welcome to the global chatroom" << std::endl;
+        }
+        else {
+            std::cout << "Chat with " << otherUser << std::endl;
+        }
+
+        Message message = {
             .type = Message::Type::COMMAND,
             .sender = username,
             .receiver = otherUser,
-            .content = "chat",
+            .content = otherUser == "" ? "globalChat" : "chat",
             .token = token,
             .timestamp = std::chrono::system_clock::now()
         };
+
+        std::cout << "Type \"!q\" to go back to menu" << std::endl;
+
+        // Get chat history from server
         sendMessage(serverfd, message);
+        emptySocket(serverfd);
         receiveMessage(serverfd, message);
         std::stringstream ss(message.content);
         std::string line;
-        int lastPing = 0;
         while (std::getline(ss, line)) {
             std::stringstream msg(line);
             std::string timestamp, sender, content;
             msg >> timestamp >> sender;
             std::getline(msg, content);
-            lastPing = std::stoi(timestamp);
-            std::cout << "[" << formatTimestamp(lastPing) << "] " << sender << ":" << content << std::endl;
+            std::cout << "[" << formatTimestamp(std::stoi(timestamp)) << "] " << sender << ":" << content << std::endl;
         }
 
         chatting.store(true);
@@ -196,7 +207,12 @@ public:
                 chatting.store(false);
                 listenThread.join();
                 clearScreen();
-                printChatroom();
+                if (otherUser == "") {
+                    printHelp();
+                }
+                else {
+                    printChatroom();
+                }
                 return;
             }
             // Remove leading whitespace
@@ -257,12 +273,16 @@ public:
                     .timestamp = std::chrono::system_clock::now()
                 };
                 sendMessage(serverfd, message);
+                emptySocket(serverfd);
                 receiveMessage(serverfd, message);
                 std::cout << "Online users:" << std::endl;
                 std::cout << message.content;
             }
             else if (input == "chat") {
                 chatroom();
+            }
+            else if (input == "global") {
+                chat("");
             }
         }
     }

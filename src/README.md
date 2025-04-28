@@ -7,7 +7,15 @@ content: content of the chat message
 token: client token
 timestamp: timestamp of the message
 ```
-Response sent to online users
+**Global Chat**
+```
+sender: message sender
+receiver: ""
+content: content of the chat message
+token: client token
+timestamp: timestamp of the message
+```
+Response sent to online users:
 ```
 sender: message sender
 receiver: message receiver
@@ -44,7 +52,7 @@ timestamp: timestamp of the message
 ```
 sender: sender
 receiver: receiver
-content: {chat, newChat}
+content: chat
 token: client token
 timestamp: timestamp of the message
 ```
@@ -54,6 +62,19 @@ allUsers: list of all users separated by \n (in content)
 onlineUsers: list of online users separated by \n (in content)
 chat: list of all chat messages in the following format in the content field (note the newline between each entry)
     timestamp sender message
+    timestamp sender message
+```
+**Global Chat**
+```
+sender: sender
+receiver: ""
+content: globalChat
+token: client token
+timestamp: timestamp of the message
+```
+Response
+```
+content: list of all chat messages in the global chatroom
     timestamp sender message
 ```
 

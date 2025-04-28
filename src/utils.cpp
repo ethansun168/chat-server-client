@@ -1,4 +1,5 @@
 #include "utils.h"
+#include <fcntl.h>
 #include <chrono>
 #include <sstream>
 #include <iomanip>
@@ -141,4 +142,22 @@ std::string formatTimestamp(int64_t timestampSeconds) {
 
 std::chrono::system_clock::time_point intToTimePoint(int timestamp) {
     return std::chrono::system_clock::time_point{std::chrono::seconds(timestamp)};
+}
+
+void emptySocket(int sockfd) {
+    // Set the socket to non-blocking
+    int flags = fcntl(sockfd, F_GETFL, 0);
+    fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+
+    // Drain the socket
+    char buffer[1024];
+    while (true) {
+        ssize_t bytes = recv(sockfd, buffer, sizeof(buffer), 0);
+        if (bytes <= 0) {
+            break; // No more data or error
+        }
+    }
+
+    // Restore blocking mode
+    fcntl(sockfd, F_SETFL, flags);
 }
