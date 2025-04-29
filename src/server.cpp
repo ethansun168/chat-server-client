@@ -249,9 +249,9 @@ public:
                         // Send message to receiver clients if they are online
                         for (auto& client : clients) {
                             if (client.second.username != message.sender) {
-                                bool shouldSend = (message.receiver.empty()) || (client.second.username == message.receiver);
+                                bool shouldSend =  (!client.second.token.empty()) && (message.receiver.empty() || client.second.username == message.receiver);
                                 if (shouldSend) {
-                                    std::cout << "Sending message to " << message.receiver << std::endl;
+                                    std::cout << "Sending message to " << client.second.token << std::endl;
                                     Message responseMessage {
                                         .type = Message::Type::CHAT,
                                         .sender = message.sender,
@@ -377,8 +377,6 @@ public:
                                 .timestamp = std::chrono::system_clock::now()
                             };
                             sendMessage(clientfd, responseMessage);
-
- 
                         }
                     }
 

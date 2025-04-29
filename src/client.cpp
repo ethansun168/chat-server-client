@@ -16,7 +16,7 @@ std::vector<std::string> split(const std::string& str, char delimiter) {
     return tokens;
 }
 
-void listenThreadFunc(std::atomic<bool>& chatting, int serverfd, std::string chatUser) {
+void listenThreadFunc(std::atomic<bool>& chatting, int serverfd, std::string username) {
     while (chatting.load()) {
         // Listen for new Messages from server
         fd_set readSet;
@@ -34,7 +34,7 @@ void listenThreadFunc(std::atomic<bool>& chatting, int serverfd, std::string cha
             if (!receiveMessage(serverfd, newMessage)) {
                 return;
             }
-            if (newMessage.receiver != chatUser) {
+            if (newMessage.receiver != username) {
                 // Ignore message not intended for us
                 continue;
             }
@@ -79,6 +79,7 @@ public:
     }
 
     void authenticate() {
+        std::cout << "Please login" << std::endl;
         std::cout << "Username: ";
         std::string user;
         std::cin >> user;
@@ -94,6 +95,7 @@ public:
             .timestamp = std::chrono::system_clock::now()
         };
         sendMessage(serverfd, message);
+        emptySocket(serverfd);
         receiveMessage(serverfd, message);
         token = message.token;
         if (token == "") {
@@ -200,8 +202,8 @@ public:
         }
 
         chatting.store(true);
-        // Start a thread that pings the server for new chat messages every second
-        std::thread listenThread(listenThreadFunc, std::ref(chatting), serverfd, username);
+        // Start a thread that listens for new chat messages from the server
+        std::thread listenThread(listenThreadFunc, std::ref(chatting), serverfd, otherUser == "" ? "" : username);
 
         while (true) {
             std::cout << "Send a message > ";
