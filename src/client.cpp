@@ -61,6 +61,7 @@ private:
         {"users", "List online users"},
         {"chat", "Enter the chatroom"},
         {"global", "Enter the global chatroom"},
+        {"logout", "Logout"}
     };
 public:
 
@@ -78,7 +79,6 @@ public:
     }
 
     void authenticate() {
-        std::cout << "Welcome to chat client!" << std::endl;
         std::cout << "Username: ";
         std::string user;
         std::cin >> user;
@@ -264,6 +264,10 @@ public:
                 close(serverfd);
                 exit(0);
             }
+            else if (input == "logout") {
+                clearScreen();
+                return;
+            }
             else if (input == "whoami") {
                 std::cout << username << std::endl;
             }
@@ -297,8 +301,6 @@ int main(int argc, char *argv[]) {
         std::cerr << "Usage: " << argv[0] << " <serverIP> <port>" << std::endl;
         return 1;
     }
-    // User login
-    // std::cout << "Login successful!" << std::endl;
     try {
         int port = std::stoi(argv[2]);
         if (port < 0 || port > 65535) {
@@ -306,8 +308,11 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         ChatClient client(argv[1], port);
-        client.authenticate();
-        client.run();
+        std::cout << "Welcome to chat client!" << std::endl;
+        while (true) {
+            client.authenticate();
+            client.run();
+        }
     }
     catch (const std::exception &e) {
         std::cerr << "Error: " << e.what() << std::endl;
